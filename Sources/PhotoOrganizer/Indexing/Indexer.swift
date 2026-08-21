@@ -51,7 +51,7 @@ final class Indexer {
 
             if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
                let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
-                try indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+                try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
             }
         }
 
@@ -88,7 +88,7 @@ final class Indexer {
             results.append(mediaFile)
 
             for (timestamp, image) in frames {
-                try indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+                try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
             }
         }
 
