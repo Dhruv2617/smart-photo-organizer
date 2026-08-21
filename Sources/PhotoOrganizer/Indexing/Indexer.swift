@@ -50,6 +50,9 @@ final class Indexer {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
+            if existing != nil {
+                try deleteFaceObservations(mediaFileId: mediaFile.id)
+            }
             if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
                let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
                 try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
@@ -88,12 +91,21 @@ final class Indexer {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
+            if existing != nil {
+                try deleteFaceObservations(mediaFileId: mediaFile.id)
+            }
             for (timestamp, image) in frames {
                 try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
             }
         }
 
         return results
+    }
+
+    private func deleteFaceObservations(mediaFileId: String) throws {
+        try db.dbPool.write { db in
+            try FaceObservation.filter(Column("mediaFileId") == mediaFileId).deleteAll(db)
+        }
     }
 
     private func indexFaces(cgImage: CGImage, mediaFileId: String, frameTimestamp: Double?) throws {

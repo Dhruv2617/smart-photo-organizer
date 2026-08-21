@@ -5,7 +5,7 @@ import Foundation
 struct OfflineSourceTests {
     @Test func testIndexSourceSkipsScanWhenSourceMarkedOffline() throws {
         let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
-        let offlineSource = Source(id: "gone", displayName: "Gone Drive", rootPath: "/Volumes/DoesNotExist",
+        let offlineSource = Source(id: "gone", volumeUUID: "gone-vol", displayName: "Gone Drive", rootPath: "/Volumes/DoesNotExist",
                                     isOnline: false, lastScannedAt: nil)
         let indexer = Indexer(db: db)
 

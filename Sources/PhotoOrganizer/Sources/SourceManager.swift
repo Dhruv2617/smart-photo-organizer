@@ -1,10 +1,6 @@
 import Foundation
 import GRDB
 
-enum SourceManagerError: Error {
-    case volumeUUIDUnavailable
-}
-
 final class SourceManager {
     private let db: DatabaseManager
 
@@ -13,9 +9,10 @@ final class SourceManager {
     }
 
     func addSource(url: URL) throws -> Source {
-        let volumeId = try volumeUUID(for: url)
+        let volumeId = volumeUUID(for: url)
         let source = Source(
-            id: volumeId,
+            id: UUID().uuidString,
+            volumeUUID: volumeId,
             displayName: url.lastPathComponent,
             rootPath: url.path,
             isOnline: true,
@@ -43,11 +40,12 @@ final class SourceManager {
         }
     }
 
-    private func volumeUUID(for url: URL) throws -> String {
-        let values = try url.resourceValues(forKeys: [.volumeUUIDStringKey])
-        guard let uuid = values.volumeUUIDString else {
-            throw SourceManagerError.volumeUUIDUnavailable
-        }
-        return uuid
+    /// Returns the volume UUID for the given URL, falling back to the
+    /// folder's own path when the volume reports no UUID (e.g. disk images,
+    /// some network mounts). This is used later for online/offline
+    /// resolution by path, not as the source's primary key.
+    private func volumeUUID(for url: URL) -> String {
+        let values = try? url.resourceValues(forKeys: [.volumeUUIDStringKey])
+        return values?.volumeUUIDString ?? url.path
     }
 }

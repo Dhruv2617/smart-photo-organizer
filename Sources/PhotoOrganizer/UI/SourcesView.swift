@@ -5,10 +5,12 @@ import AppKit
 final class SourcesViewModel: ObservableObject {
     @Published var sources: [Source] = []
 
+    private let db: DatabaseManager
     private let sourceManager: SourceManager
     private let indexer: Indexer
 
     init(db: DatabaseManager) {
+        self.db = db
         self.sourceManager = SourceManager(db: db)
         self.indexer = Indexer(db: db)
         reload()
@@ -23,6 +25,8 @@ final class SourcesViewModel: ObservableObject {
         for source in sources {
             _ = try indexer.indexSource(source)
         }
+        let clusterer = DuplicateClusterer(db: db)
+        _ = try clusterer.rebuildClusters()
         reload()
     }
 

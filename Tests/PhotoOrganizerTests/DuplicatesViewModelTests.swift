@@ -8,7 +8,7 @@ struct DuplicatesViewModelTests {
     func testReloadGroupsMembersUnderTheirCluster() throws {
         let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
         try db.dbPool.write { db in
-            try Source(id: "s1", displayName: "S", rootPath: "/s", isOnline: true, lastScannedAt: nil).save(db)
+            try Source(id: "s1", volumeUUID: "vol1", displayName: "S", rootPath: "/s", isOnline: true, lastScannedAt: nil).save(db)
             try DuplicateCluster(id: "c1", suggestedKeeperMediaFileId: "m1", createdAt: Date()).save(db)
             try MediaFile(id: "m1", sourceId: "s1", relativePath: "a.jpg", kind: "photo", sha256: "h", pHash: nil,
                           captureDate: nil, width: nil, height: nil, clusterId: "c1").save(db)

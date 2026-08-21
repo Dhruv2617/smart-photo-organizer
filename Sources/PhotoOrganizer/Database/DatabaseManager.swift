@@ -22,7 +22,8 @@ final class DatabaseManager {
 
         migrator.registerMigration("v1") { db in
             try db.create(table: "source") { t in
-                t.column("id", .text).primaryKey()          // volume UUID
+                t.column("id", .text).primaryKey()          // unique source id (UUID)
+                t.column("volumeUUID", .text).notNull()      // volume UUID, or folder path fallback
                 t.column("displayName", .text).notNull()
                 t.column("rootPath", .text).notNull()
                 t.column("isOnline", .boolean).notNull().defaults(to: true)

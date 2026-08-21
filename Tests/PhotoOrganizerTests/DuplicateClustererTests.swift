@@ -7,8 +7,8 @@ struct DuplicateClustererTests {
     @Test func testExactHashMatchAcrossDifferentSourcesFormsOneCluster() throws {
         let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
         try db.dbPool.write { db in
-            try Source(id: "sourceA", displayName: "A", rootPath: "/a", isOnline: true, lastScannedAt: nil).save(db)
-            try Source(id: "sourceB", displayName: "B", rootPath: "/b", isOnline: true, lastScannedAt: nil).save(db)
+            try Source(id: "sourceA", volumeUUID: "volA", displayName: "A", rootPath: "/a", isOnline: true, lastScannedAt: nil).save(db)
+            try Source(id: "sourceB", volumeUUID: "volB", displayName: "B", rootPath: "/b", isOnline: true, lastScannedAt: nil).save(db)
             try MediaFile(id: "1", sourceId: "sourceA", relativePath: "x.jpg", kind: "photo",
                           sha256: "same-hash", pHash: nil, captureDate: nil, width: nil, height: nil, clusterId: nil).save(db)
             try MediaFile(id: "2", sourceId: "sourceB", relativePath: "y.jpg", kind: "photo",
@@ -30,7 +30,7 @@ struct DuplicateClustererTests {
     @Test func testNearDuplicatePHashWithinThresholdFormsCluster() throws {
         let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
         try db.dbPool.write { db in
-            try Source(id: "sourceA", displayName: "A", rootPath: "/a", isOnline: true, lastScannedAt: nil).save(db)
+            try Source(id: "sourceA", volumeUUID: "volA", displayName: "A", rootPath: "/a", isOnline: true, lastScannedAt: nil).save(db)
             // Two distinct hashes 1 bit apart -> near duplicate.
             try MediaFile(id: "1", sourceId: "sourceA", relativePath: "x.jpg", kind: "photo",
                           sha256: "hash-a", pHash: String(UInt64(0b1010), radix: 16), captureDate: nil, width: nil, height: nil, clusterId: nil).save(db)
