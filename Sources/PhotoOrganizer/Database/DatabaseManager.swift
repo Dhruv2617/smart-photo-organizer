@@ -2,7 +2,7 @@ import GRDB
 import Foundation
 
 final class DatabaseManager {
-    static let shared: DatabaseManager = {
+    nonisolated(unsafe) static let shared: DatabaseManager = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PhotoOrganizer", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

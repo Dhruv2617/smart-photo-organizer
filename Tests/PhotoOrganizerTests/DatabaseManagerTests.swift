@@ -3,7 +3,7 @@ import Foundation
 @testable import PhotoOrganizer
 
 struct DatabaseManagerTests {
-    @Test func migrationsCreateAllTables() throws {
+    @Test func testMigrationsCreateAllTables() throws {
         let path = NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite"
         let manager = try DatabaseManager(path: path)
 

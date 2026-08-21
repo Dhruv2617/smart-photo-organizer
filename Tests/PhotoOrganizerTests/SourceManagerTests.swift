@@ -34,6 +34,6 @@ struct SourceManagerTests {
 
         let all = try manager.allSources()
         #expect(all.count == 1)
-        #expect(all[0].isOnline == false)
+        #expect(!all[0].isOnline)
     }
 }

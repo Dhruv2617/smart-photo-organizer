@@ -1,13 +1,14 @@
-// swift-tools-version:5.9
+// swift-tools-version: 6.1
 import PackageDescription
 
 let package = Package(
     name: "PhotoOrganizer",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.10.0")
     ],
     targets: [
         .executableTarget(
@@ -19,7 +20,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PhotoOrganizerTests",
-            dependencies: ["PhotoOrganizer"],
+            dependencies: ["PhotoOrganizer", .product(name: "Testing", package: "swift-testing")],
             path: "Tests/PhotoOrganizerTests"
         )
     ]
