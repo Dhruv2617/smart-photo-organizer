@@ -18,23 +18,28 @@ enum HashService {
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw HashError.unreadableImage
         }
-        return pHash(cgImage: cgImage)
+        return try pHash(cgImage: cgImage)
     }
 
-    static func pHash(cgImage: CGImage) -> UInt64 {
+    static func pHash(cgImage: CGImage) throws -> UInt64 {
         let size = 8
         var pixels = [UInt8](repeating: 0, count: size * size)
         let colorSpace = CGColorSpaceCreateDeviceGray()
-        let context = CGContext(
-            data: &pixels,
-            width: size,
-            height: size,
-            bitsPerComponent: 8,
-            bytesPerRow: size,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        )
-        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+
+        try pixels.withUnsafeMutableBytes { ptr in
+            guard let context = CGContext(
+                data: ptr.baseAddress,
+                width: size,
+                height: size,
+                bitsPerComponent: 8,
+                bytesPerRow: size,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else {
+                throw HashError.unreadableImage
+            }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+        }
 
         var hash: UInt64 = 0
         for row in 0..<size {
