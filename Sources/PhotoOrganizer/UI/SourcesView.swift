@@ -27,6 +27,7 @@ final class SourcesViewModel: ObservableObject {
     }
 
     private func reload() {
+        try? sourceManager.refreshOnlineStatus()
         sources = (try? sourceManager.allSources()) ?? []
     }
 }
