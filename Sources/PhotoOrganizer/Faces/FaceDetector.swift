@@ -36,8 +36,10 @@ enum FaceDetector {
     }
 
     /// Converts Vision's normalized, bottom-left-origin bounding box into
-    /// pixel space for `cgImage` and crops that region out.
-    private static func cropFace(from cgImage: CGImage, normalizedBoundingBox: CGRect) -> CGImage? {
+    /// pixel space for `cgImage` and crops that region out. Internal (not
+    /// private) so UI code can reuse it to render a face-crop thumbnail from
+    /// a stored `FaceObservation`'s bounding box.
+    static func cropFace(from cgImage: CGImage, normalizedBoundingBox: CGRect) -> CGImage? {
         let imageWidth = CGFloat(cgImage.width)
         let imageHeight = CGFloat(cgImage.height)
 

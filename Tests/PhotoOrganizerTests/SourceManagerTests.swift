@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import GRDB
 @testable import PhotoOrganizer
 
 struct SourceManagerTests {
@@ -59,5 +60,36 @@ struct SourceManagerTests {
         #expect(Set(all.map(\.id)).count == 2)
         #expect(all.first { $0.id == sourceA.id }?.rootPath == folderA.path)
         #expect(all.first { $0.id == sourceB.id }?.rootPath == folderB.path)
+    }
+
+    @Test func testRemoveSourceDeletesItFromTheIndexButNotFromDisk() throws {
+        let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
+        let manager = SourceManager(db: db)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let source = try manager.addSource(url: folder)
+
+        try manager.removeSource(id: source.id)
+
+        let all = try manager.allSources()
+        #expect(all.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test func testRemoveSourceCascadesToItsMediaFiles() throws {
+        let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
+        let manager = SourceManager(db: db)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let source = try manager.addSource(url: folder)
+        try db.dbPool.write { db in
+            try MediaFile(id: "m1", sourceId: source.id, relativePath: "a.jpg", kind: "photo",
+                          sha256: "h", pHash: nil, captureDate: nil, width: nil, height: nil, clusterId: nil).save(db)
+        }
+
+        try manager.removeSource(id: source.id)
+
+        let remainingFiles = try db.dbPool.read { db in try MediaFile.fetchAll(db) }
+        #expect(remainingFiles.isEmpty)
     }
 }

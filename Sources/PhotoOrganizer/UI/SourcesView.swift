@@ -4,6 +4,9 @@ import AppKit
 @MainActor
 final class SourcesViewModel: ObservableObject {
     @Published var sources: [Source] = []
+    @Published var isScanning = false
+    @Published var scanStatus: String = ""
+    @Published var lastError: Error?
 
     private let db: DatabaseManager
     private let sourceManager: SourceManager
@@ -21,13 +24,56 @@ final class SourcesViewModel: ObservableObject {
         reload()
     }
 
-    func rescanAll() throws {
-        for source in sources {
-            _ = try indexer.indexSource(source)
-        }
-        let clusterer = DuplicateClusterer(db: db)
-        _ = try clusterer.rebuildClusters()
+    /// Removes a source from the index only — never touches the original
+    /// files on disk.
+    func removeSource(_ source: Source) throws {
+        try sourceManager.removeSource(id: source.id)
         reload()
+    }
+
+    /// Runs the actual scan off the main thread so the UI stays responsive,
+    /// hopping back to the main actor only to publish progress/state.
+    func rescanAll() {
+        guard !isScanning else { return }
+        isScanning = true
+        scanStatus = "Starting…"
+
+        let sourcesSnapshot = sources
+        let indexer = self.indexer
+        let db = self.db
+
+        Task.detached(priority: .userInitiated) {
+            var scanError: Error?
+            for (sourceIndex, source) in sourcesSnapshot.enumerated() {
+                do {
+                    _ = try indexer.indexSource(source) { processed, total in
+                        Task { @MainActor in
+                            self.scanStatus = "Source \(sourceIndex + 1)/\(sourcesSnapshot.count): \(processed)/\(total) files"
+                        }
+                    }
+                } catch {
+                    scanError = error
+                    break
+                }
+            }
+            if scanError == nil {
+                do {
+                    let clusterer = DuplicateClusterer(db: db)
+                    _ = try clusterer.rebuildClusters()
+                } catch {
+                    scanError = error
+                }
+            }
+
+            await MainActor.run {
+                self.isScanning = false
+                self.scanStatus = ""
+                self.reload()
+                if let scanError {
+                    self.lastError = scanError
+                }
+            }
+        }
     }
 
     private func reload() {
@@ -42,25 +88,58 @@ struct SourcesView: View {
 
     var body: some View {
         VStack {
-            List(viewModel.sources, id: \.id) { source in
-                HStack {
-                    Text(source.displayName)
-                    Spacer()
-                    Text(source.isOnline ? "Online" : "Offline")
-                        .foregroundStyle(source.isOnline ? .green : .secondary)
+            List {
+                ForEach(viewModel.sources, id: \.id) { source in
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundStyle(.blue)
+                        Text(source.displayName)
+                        Spacer()
+                        Text(source.isOnline ? "Online" : "Offline")
+                            .foregroundStyle(source.isOnline ? .green : .secondary)
+                        Button("Remove") { remove(source) }
+                            .disabled(viewModel.isScanning)
+                    }
+                    .swipeActions {
+                        Button("Remove", role: .destructive) { remove(source) }
+                    }
                 }
+            }
+            if viewModel.isScanning {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(viewModel.scanStatus)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
             }
             HStack {
                 Button("Add Folder…") { presentFolderPicker() }
-                Button("Rescan All") { rescan() }
+                    .disabled(viewModel.isScanning)
+                Button("Rescan All") { viewModel.rescanAll() }
+                    .disabled(viewModel.isScanning || viewModel.sources.isEmpty)
             }
             .padding()
         }
+        .onChange(of: viewModel.lastError == nil) { _, _ in
+            if let error = viewModel.lastError {
+                errorMessage = error.localizedDescription
+            }
+        }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
+            Button("OK") { errorMessage = nil; viewModel.lastError = nil }
         }, message: {
             Text(errorMessage ?? "")
         })
+    }
+
+    private func remove(_ source: Source) {
+        do {
+            try viewModel.removeSource(source)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func presentFolderPicker() {
@@ -77,11 +156,4 @@ struct SourcesView: View {
         }
     }
 
-    private func rescan() {
-        do {
-            try viewModel.rescanAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 }

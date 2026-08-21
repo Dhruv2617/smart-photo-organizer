@@ -1,6 +1,8 @@
 import Testing
 import Foundation
 import GRDB
+import CoreGraphics
+import ImageIO
 @testable import PhotoOrganizer
 
 struct IndexerTests {
@@ -72,5 +74,42 @@ struct IndexerTests {
             try FaceObservation.filter(Column("mediaFileId") == mediaFileId).fetchAll(db)
         }
         #expect(!observations.contains { $0.id == "stale-observation" }, "stale face observation must be cleared on re-index")
+    }
+
+    @Test func testIndexingRealImagePopulatesDimensionsAndFileSize() throws {
+        let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
+        let sourceManager = SourceManager(db: db)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("photo.png")
+        try Self.writeSolidColorPNG(to: fileURL, width: 64, height: 32)
+        let source = try sourceManager.addSource(url: root)
+
+        let indexer = Indexer(db: db)
+        let indexed = try indexer.indexSource(source)
+
+        #expect(indexed.count == 1)
+        #expect(indexed[0].width == 64)
+        #expect(indexed[0].height == 32)
+        let expectedFileSize = try Int64(FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int ?? -1)
+        #expect(indexed[0].fileSizeBytes == expectedFileSize)
+    }
+
+    private static func writeSolidColorPNG(to url: URL, width: Int, height: Int) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let cgImage = context.makeImage()!
+
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            struct WriteError: Error {}
+            throw WriteError()
+        }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        CGImageDestinationFinalize(destination)
     }
 }

@@ -28,6 +28,15 @@ final class SourceManager {
         try db.dbPool.read { db in try Source.fetchAll(db) }
     }
 
+    /// Removes a source and every row derived from it (MediaFile,
+    /// FaceObservation via cascade) from the index. Never touches the
+    /// original files on disk — this only forgets what was indexed.
+    func removeSource(id: String) throws {
+        try db.dbPool.write { db in
+            _ = try Source.deleteOne(db, key: id)
+        }
+    }
+
     func refreshOnlineStatus() throws {
         let sources = try allSources()
         for source in sources {

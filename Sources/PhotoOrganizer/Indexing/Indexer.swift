@@ -2,7 +2,9 @@ import Foundation
 import GRDB
 import ImageIO
 
-final class Indexer {
+/// Safe to use from a background task: `db` is a thread-safe DatabaseManager
+/// and `faceMatcher` only touches the DB through it, never shared mutable state.
+final class Indexer: @unchecked Sendable {
     private let db: DatabaseManager
     private let faceMatcher: FaceMatcher
 
@@ -14,13 +16,19 @@ final class Indexer {
     /// Scans `source.rootPath`, indexing any new file and any file whose
     /// content hash changed since the last pass. Returns only the
     /// newly-written or updated rows (unchanged files are skipped).
-    func indexSource(_ source: Source) throws -> [MediaFile] {
+    /// `onFileScanned`, if given, is called after each scanned file (whether
+    /// or not it needed re-indexing) with (files processed so far, total
+    /// files found), so callers can drive a progress indicator.
+    func indexSource(_ source: Source, onFileScanned: ((Int, Int) -> Void)? = nil) throws -> [MediaFile] {
         guard source.isOnline else { return [] }
         let root = URL(fileURLWithPath: source.rootPath).resolvingSymlinksInPath()
         let scanned = FileScanner.scan(root: root)
         var results: [MediaFile] = []
+        var processed = 0
 
         for file in scanned where file.kind == .photo {
+            defer { processed += 1; onFileScanned?(processed, scanned.count) }
+
             let resolvedFileURL = file.url.resolvingSymlinksInPath()
             let relativePath = String(resolvedFileURL.path.dropFirst(root.path.count + 1))
             let sha = try HashService.sha256(fileAt: file.url)
@@ -35,6 +43,7 @@ final class Indexer {
             }
 
             let pHash: UInt64? = try? HashService.pHash(imageAt: file.url)
+            let dimensions = Self.imageDimensions(at: file.url)
             let mediaFile = MediaFile(
                 id: existing?.id ?? UUID().uuidString,
                 sourceId: source.id,
@@ -43,8 +52,9 @@ final class Indexer {
                 sha256: sha,
                 pHash: pHash.map { String($0, radix: 16) },
                 captureDate: nil,
-                width: nil,
-                height: nil,
+                width: dimensions?.width,
+                height: dimensions?.height,
+                fileSizeBytes: Self.fileSize(at: file.url),
                 clusterId: nil
             )
             try db.dbPool.write { db in try mediaFile.save(db) }
@@ -60,6 +70,8 @@ final class Indexer {
         }
 
         for file in scanned where file.kind == .video {
+            defer { processed += 1; onFileScanned?(processed, scanned.count) }
+
             let resolvedFileURL = file.url.resolvingSymlinksInPath()
             let relativePath = String(resolvedFileURL.path.dropFirst(root.path.count + 1))
             let sha = try HashService.sha256(fileAt: file.url)
@@ -75,6 +87,7 @@ final class Indexer {
 
             let frames = try VideoFrameSampler.sampleFrames(videoAt: file.url, interval: 2.0)
             let representativeHash: UInt64? = try? frames.first.map { try HashService.pHash(cgImage: $0.image) }
+            let firstFrameImage = frames.first?.image
 
             let mediaFile = MediaFile(
                 id: existing?.id ?? UUID().uuidString,
@@ -84,8 +97,9 @@ final class Indexer {
                 sha256: sha,
                 pHash: representativeHash.map { String($0, radix: 16) },
                 captureDate: nil,
-                width: nil,
-                height: nil,
+                width: firstFrameImage.map { $0.width },
+                height: firstFrameImage.map { $0.height },
+                fileSizeBytes: Self.fileSize(at: file.url),
                 clusterId: nil
             )
             try db.dbPool.write { db in try mediaFile.save(db) }
@@ -104,7 +118,7 @@ final class Indexer {
 
     private func deleteFaceObservations(mediaFileId: String) throws {
         try db.dbPool.write { db in
-            try FaceObservation.filter(Column("mediaFileId") == mediaFileId).deleteAll(db)
+            _ = try FaceObservation.filter(Column("mediaFileId") == mediaFileId).deleteAll(db)
         }
     }
 
@@ -125,6 +139,22 @@ final class Indexer {
             )
             try db.dbPool.write { db in try observation.save(db) }
         }
+    }
+
+    /// Reads pixel dimensions from image metadata without decoding the full
+    /// image (cheap — just header/EXIF inspection via ImageIO).
+    private static func imageDimensions(at url: URL) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            return nil
+        }
+        return (width, height)
+    }
+
+    private static func fileSize(at url: URL) -> Int64? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
     }
 
     private static func storedKind(for kind: MediaKind) -> String {

@@ -13,5 +13,6 @@ struct MediaFile: Codable, FetchableRecord, PersistableRecord {
     var captureDate: Date?
     var width: Int?
     var height: Int?
+    var fileSizeBytes: Int64? = nil
     var clusterId: String?
 }

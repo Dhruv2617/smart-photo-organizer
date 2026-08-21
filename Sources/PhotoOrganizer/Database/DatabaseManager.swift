@@ -1,8 +1,11 @@
 import GRDB
 import Foundation
 
-final class DatabaseManager {
-    nonisolated(unsafe) static let shared: DatabaseManager = {
+/// GRDB's DatabasePool is internally thread-safe (its whole purpose is
+/// concurrent reads/writes across threads), so it's safe to hand this
+/// across actor/task boundaries despite not being a Sendable value type.
+final class DatabaseManager: @unchecked Sendable {
+    static let shared: DatabaseManager = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PhotoOrganizer", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -66,6 +69,12 @@ final class DatabaseManager {
                 t.column("boundingBoxWidth", .double).notNull()
                 t.column("boundingBoxHeight", .double).notNull()
                 t.column("frameTimestamp", .double)           // nil for photos, seconds into video otherwise
+            }
+        }
+
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "mediaFile") { t in
+                t.add(column: "fileSizeBytes", .integer)
             }
         }
 
