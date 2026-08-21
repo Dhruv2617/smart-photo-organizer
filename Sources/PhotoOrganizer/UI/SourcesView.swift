@@ -57,6 +57,7 @@ final class SourcesViewModel: ObservableObject {
                 }
             }
             if scanError == nil {
+                await MainActor.run { self.scanStatus = "Finding duplicates…" }
                 do {
                     let clusterer = DuplicateClusterer(db: db)
                     _ = try clusterer.rebuildClusters()

@@ -86,7 +86,12 @@ final class Indexer: @unchecked Sendable {
             }
 
             let frames = try VideoFrameSampler.sampleFrames(videoAt: file.url, interval: 2.0)
-            let representativeHash: UInt64? = try? frames.first.map { try HashService.pHash(cgImage: $0.image) }
+            // Stores every sampled frame's pHash, comma-separated, so
+            // DuplicateClusterer can compare the whole frame set (not just
+            // one frame) between two videos — matches the spec's "high
+            // proportion of sampled frames match" definition of near-duplicate.
+            let frameHashes = frames.compactMap { try? HashService.pHash(cgImage: $0.image) }
+            let pHashList = frameHashes.isEmpty ? nil : frameHashes.map { String($0, radix: 16) }.joined(separator: ",")
             let firstFrameImage = frames.first?.image
 
             let mediaFile = MediaFile(
@@ -95,7 +100,7 @@ final class Indexer: @unchecked Sendable {
                 relativePath: relativePath,
                 kind: Self.storedKind(for: file.kind),
                 sha256: sha,
-                pHash: representativeHash.map { String($0, radix: 16) },
+                pHash: pHashList,
                 captureDate: nil,
                 width: firstFrameImage.map { $0.width },
                 height: firstFrameImage.map { $0.height },

@@ -78,6 +78,12 @@ final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "duplicateCluster") { t in
+                t.add(column: "matchType", .text).notNull().defaults(to: "exact")
+            }
+        }
+
         return migrator
     }
 }
