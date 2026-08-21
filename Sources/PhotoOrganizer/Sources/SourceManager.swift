@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 
+enum SourceManagerError: Error {
+    case volumeUUIDUnavailable
+}
+
 final class SourceManager {
     private let db: DatabaseManager
 
@@ -41,6 +45,9 @@ final class SourceManager {
 
     private func volumeUUID(for url: URL) throws -> String {
         let values = try url.resourceValues(forKeys: [.volumeUUIDStringKey])
-        return values.volumeUUIDString ?? url.path
+        guard let uuid = values.volumeUUIDString else {
+            throw SourceManagerError.volumeUUIDUnavailable
+        }
+        return uuid
     }
 }
