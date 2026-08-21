@@ -1,11 +1,14 @@
 import Foundation
 import GRDB
+import ImageIO
 
 final class Indexer {
     private let db: DatabaseManager
+    private let faceMatcher: FaceMatcher
 
     init(db: DatabaseManager) {
         self.db = db
+        self.faceMatcher = FaceMatcher(db: db)
     }
 
     /// Scans `source.rootPath`, indexing any new file and any file whose
@@ -45,6 +48,11 @@ final class Indexer {
             )
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
+
+            if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
+               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
+                try indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+            }
         }
 
         for file in scanned where file.kind == .video {
@@ -78,9 +86,32 @@ final class Indexer {
             )
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
+
+            for (timestamp, image) in frames {
+                try indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+            }
         }
 
         return results
+    }
+
+    private func indexFaces(cgImage: CGImage, mediaFileId: String, frameTimestamp: Double?) throws {
+        let faces = try FaceDetector.detectFaces(in: cgImage)
+        for face in faces {
+            let identity = try faceMatcher.matchOrCreateUnnamedIdentity(embedding: face.featurePrintData)
+            let observation = FaceObservation(
+                id: UUID().uuidString,
+                mediaFileId: mediaFileId,
+                identityId: identity.id,
+                embedding: face.featurePrintData,
+                boundingBoxX: face.boundingBox.origin.x,
+                boundingBoxY: face.boundingBox.origin.y,
+                boundingBoxWidth: face.boundingBox.width,
+                boundingBoxHeight: face.boundingBox.height,
+                frameTimestamp: frameTimestamp
+            )
+            try db.dbPool.write { db in try observation.save(db) }
+        }
     }
 
     private static func storedKind(for kind: MediaKind) -> String {
