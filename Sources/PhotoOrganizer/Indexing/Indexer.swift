@@ -15,6 +15,7 @@ final class Indexer {
     /// content hash changed since the last pass. Returns only the
     /// newly-written or updated rows (unchanged files are skipped).
     func indexSource(_ source: Source) throws -> [MediaFile] {
+        guard source.isOnline else { return [] }
         let root = URL(fileURLWithPath: source.rootPath).resolvingSymlinksInPath()
         let scanned = FileScanner.scan(root: root)
         var results: [MediaFile] = []
