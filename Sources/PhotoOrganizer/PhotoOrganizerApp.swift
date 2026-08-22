@@ -9,6 +9,8 @@ struct PhotoOrganizerApp: App {
                     .tabItem { Text("Sources") }
                 DuplicatesView(viewModel: DuplicatesViewModel(db: DatabaseManager.shared))
                     .tabItem { Text("Duplicates") }
+                SearchView(viewModel: SearchViewModel(db: DatabaseManager.shared))
+                    .tabItem { Text("Search") }
                 // People tab disabled for now: face matching via
                 // VNGenerateImageFeaturePrintRequest (the only public
                 // Vision API available) isn't face-recognition-tuned like

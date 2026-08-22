@@ -15,6 +15,11 @@ final class Indexer: @unchecked Sendable {
 
     private let db: DatabaseManager
     private let faceMatcher: FaceMatcher
+    /// Lazy since loading+compiling the bundled CLIP model has real cost;
+    /// only pay it if a scan actually reaches a photo/video. `try?` at the
+    /// call site means a failure to load just silently disables semantic
+    /// embedding for this run rather than aborting the whole scan.
+    private lazy var imageEmbedder: ImageEmbedder? = try? ImageEmbedder()
 
     init(db: DatabaseManager) {
         self.db = db
@@ -68,13 +73,17 @@ final class Indexer: @unchecked Sendable {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
-            if Self.faceIndexingEnabled {
+            if Self.faceIndexingEnabled || imageEmbedder != nil {
                 if existing != nil {
-                    try deleteFaceObservations(mediaFileId: mediaFile.id)
+                    if Self.faceIndexingEnabled { try deleteFaceObservations(mediaFileId: mediaFile.id) }
+                    try deleteEmbeddings(mediaFileId: mediaFile.id)
                 }
                 if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
                    let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
-                    try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+                    if Self.faceIndexingEnabled {
+                        try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+                    }
+                    try? indexEmbedding(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
                 }
             }
         }
@@ -120,12 +129,16 @@ final class Indexer: @unchecked Sendable {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
-            if Self.faceIndexingEnabled {
+            if Self.faceIndexingEnabled || imageEmbedder != nil {
                 if existing != nil {
-                    try deleteFaceObservations(mediaFileId: mediaFile.id)
+                    if Self.faceIndexingEnabled { try deleteFaceObservations(mediaFileId: mediaFile.id) }
+                    try deleteEmbeddings(mediaFileId: mediaFile.id)
                 }
                 for (timestamp, image) in frames {
-                    try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+                    if Self.faceIndexingEnabled {
+                        try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+                    }
+                    try? indexEmbedding(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
                 }
             }
         }
@@ -137,6 +150,24 @@ final class Indexer: @unchecked Sendable {
         try db.dbPool.write { db in
             _ = try FaceObservation.filter(Column("mediaFileId") == mediaFileId).deleteAll(db)
         }
+    }
+
+    private func deleteEmbeddings(mediaFileId: String) throws {
+        try db.dbPool.write { db in
+            _ = try MediaEmbedding.filter(Column("mediaFileId") == mediaFileId).deleteAll(db)
+        }
+    }
+
+    private func indexEmbedding(cgImage: CGImage, mediaFileId: String, frameTimestamp: Double?) throws {
+        guard let imageEmbedder else { return }
+        let vector = try imageEmbedder.embed(cgImage: cgImage)
+        let embedding = MediaEmbedding(
+            id: UUID().uuidString,
+            mediaFileId: mediaFileId,
+            frameTimestamp: frameTimestamp,
+            embedding: SemanticSearchService.encode(vector)
+        )
+        try db.dbPool.write { db in try embedding.save(db) }
     }
 
     private func indexFaces(cgImage: CGImage, mediaFileId: String, frameTimestamp: Double?) throws {
