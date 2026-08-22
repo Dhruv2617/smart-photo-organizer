@@ -55,8 +55,17 @@ struct SourceGalleryView: View {
     @State private var isConverting = false
     @State private var conversionStatus = ""
     @State private var conversionSummary: String?
+    @State private var kindFilter: MediaKindFilter = .all
 
     private let columns = [GridItem(.adaptive(minimum: 110, maximum: 150), spacing: 8)]
+
+    private var filteredItems: [MediaFile] {
+        switch kindFilter {
+        case .all: return viewModel.items
+        case .photos: return viewModel.items.filter { $0.kind == "photo" }
+        case .videos: return viewModel.items.filter { $0.kind == "video" }
+        }
+    }
 
     private var selectedItems: [MediaFile] {
         viewModel.items.filter { selectedIds.contains($0.id) }
@@ -68,7 +77,14 @@ struct SourceGalleryView: View {
                 Button("Close") { dismiss() }
                 Text(viewModel.source.displayName).font(.headline)
                 Spacer()
-                Text("\(viewModel.items.count) files").foregroundStyle(.secondary)
+                Picker("", selection: $kindFilter) {
+                    ForEach(MediaKindFilter.allCases) { filter in
+                        Text(filter.displayName).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+                Text("\(filteredItems.count) files").foregroundStyle(.secondary)
             }
             .padding()
 
@@ -78,7 +94,7 @@ struct SourceGalleryView: View {
                     if !isSelecting { selectedIds.removeAll() }
                 }
                 if isSelecting {
-                    Button("Select All") { selectedIds = Set(viewModel.items.map(\.id)) }
+                    Button("Select All") { selectedIds = Set(filteredItems.map(\.id)) }
                     Button("Select None") { selectedIds.removeAll() }
                     Spacer()
                     Text("\(selectedIds.count) selected").foregroundStyle(.secondary)
@@ -104,10 +120,14 @@ struct SourceGalleryView: View {
                 Text("No indexed photos or videos in this folder yet. Try Rescan All.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredItems.isEmpty {
+                Text("No \(kindFilter.displayName.lowercased()) in this folder.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(Array(viewModel.items.enumerated()), id: \.element.id) { index, file in
+                        ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, file in
                             SelectableThumbnail(
                                 url: viewModel.fileURL(for: file),
                                 kind: file.kind,
@@ -137,7 +157,7 @@ struct SourceGalleryView: View {
         }
         .sheet(item: $previewIndex) { request in
             MediaSlideshow(
-                items: viewModel.items,
+                items: filteredItems,
                 startIndex: request.value,
                 fileURL: { viewModel.fileURL(for: $0) },
                 onTrash: { try viewModel.moveToTrash($0) },
@@ -200,6 +220,18 @@ struct SourceGalleryView: View {
             conversionSummary = failed == 0
                 ? "Converted \(succeeded) file\(succeeded == 1 ? "" : "s") to \(destination.lastPathComponent)."
                 : "Converted \(succeeded), failed \(failed). Saved to \(destination.lastPathComponent)."
+        }
+    }
+}
+
+private enum MediaKindFilter: CaseIterable, Identifiable {
+    case all, photos, videos
+    var id: Self { self }
+    var displayName: String {
+        switch self {
+        case .all: return "All"
+        case .photos: return "Photos"
+        case .videos: return "Videos"
         }
     }
 }

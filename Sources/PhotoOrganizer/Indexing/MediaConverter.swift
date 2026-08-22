@@ -82,9 +82,19 @@ enum MediaConverter {
     }
 
     /// Converts one video to `format`, writing into `destinationFolder`.
+    ///
+    /// For `.mp4` this forces an H.264 re-encode (capped at 1080p) instead
+    /// of `AVAssetExportPresetHighestQuality`, which only re-wraps the
+    /// container and keeps the SOURCE codec — iPhone videos are usually
+    /// HEVC (H.265), so "converting to MP4" that way changes the file
+    /// extension but not the codec, and plenty of Android phones can't
+    /// decode HEVC at all. H.264 is decodable on essentially every device
+    /// this file might end up on, at the cost of a slightly larger file
+    /// and capped resolution versus the true source quality.
     static func convertVideo(at sourceURL: URL, to format: VideoFormat, destinationFolder: URL) async throws -> URL {
         let asset = AVURLAsset(url: sourceURL)
-        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+        let presetName = format == .mp4 ? AVAssetExportPreset1920x1080 : AVAssetExportPresetHighestQuality
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: presetName) else {
             throw MediaConverterError.exportFailed("Could not create export session")
         }
         let destinationURL = uniqueDestinationURL(
