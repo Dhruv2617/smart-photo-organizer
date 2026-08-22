@@ -17,7 +17,7 @@ struct SemanticSearchServiceTests {
     @Test func testRankOrdersCandidatesBestFirst() {
         let query: [Float] = [1, 0]
         let candidates: [(mediaFileId: String, embedding: [Float])] = [
-            ("far", [0, 1]),
+            ("far", [0.3, 0.95]),
             ("close", [0.99, 0.01]),
             ("medium", [0.5, 0.5])
         ]

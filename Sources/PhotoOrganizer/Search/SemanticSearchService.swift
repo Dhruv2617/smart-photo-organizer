@@ -14,6 +14,13 @@ final class SemanticSearchService {
         self.db = db
     }
 
+    /// CLIP cosine similarities for unrelated image/text pairs still land
+    /// around 0.15-0.2 (embedding space isn't zero-centered around
+    /// "unrelated"), so returning "top N" unconditionally always pads the
+    /// list with junk once real matches run out. Cut off anything below
+    /// this, tuned against real query/library pairs during testing.
+    static let minimumScore: Float = 0.24
+
     /// Pure ranking function, independent of the database or the embedding
     /// model — exposed so it's testable with synthetic vectors.
     static func rank(queryEmbedding: [Float], candidates: [(mediaFileId: String, embedding: [Float])], limit: Int) -> [String] {
@@ -27,6 +34,7 @@ final class SemanticSearchService {
             }
         }
         return bestScoreByMediaFileId
+            .filter { $0.value >= minimumScore }
             .sorted { $0.value > $1.value }
             .prefix(limit)
             .map { $0.key }
