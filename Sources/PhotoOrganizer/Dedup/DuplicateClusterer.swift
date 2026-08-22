@@ -1,7 +1,9 @@
 import Foundation
 import GRDB
 
-final class DuplicateClusterer {
+/// Safe to use from a background task: `db` is a thread-safe DatabaseManager
+/// and this class has no other mutable state.
+final class DuplicateClusterer: @unchecked Sendable {
     static let defaultPHashThreshold = 5
     static let pHashThresholdRange = 0...20 // exposed to the UI similarity slider
 
@@ -19,15 +21,17 @@ final class DuplicateClusterer {
     /// same cluster). `pHashThreshold` is the adjustable similarity knob —
     /// lower is stricter (fewer, more confident near-duplicate matches),
     /// higher is looser (more matches, more false positives).
-    func rebuildClusters(pHashThreshold: Int = DuplicateClusterer.defaultPHashThreshold) throws -> [DuplicateCluster] {
+    func rebuildClusters(pHashThreshold: Int = DuplicateClusterer.defaultPHashThreshold, onProgress: ((String) -> Void)? = nil) throws -> [DuplicateCluster] {
+        onProgress?("Loading indexed files…")
         let allFiles = try db.dbPool.read { db in try MediaFile.fetchAll(db) }
 
-        // Reset previous clustering.
+        onProgress?("Clearing previous clusters…")
         try db.dbPool.write { db in
             try MediaFile.updateAll(db, Column("clusterId").set(to: nil as String?))
             try DuplicateCluster.deleteAll(db)
         }
 
+        onProgress?("Grouping exact duplicates…")
         var exactGroups: [[MediaFile]] = []
         var byHash: [String: [MediaFile]] = [:]
         for file in allFiles {
@@ -45,11 +49,13 @@ final class DuplicateClusterer {
         // Near-duplicate pass over files not already grouped by exact hash,
         // split by kind since photos compare a single pHash but videos
         // compare a set of per-sampled-frame pHashes.
+        onProgress?("Comparing \(ungrouped.count) files for similarity…")
         let ungroupedWithHash = ungrouped.filter { $0.pHash != nil }
         var nearGroups: [[MediaFile]] = []
         nearGroups += nearDuplicatePhotoGroups(ungroupedWithHash.filter { $0.kind == "photo" }, pHashThreshold: pHashThreshold)
         nearGroups += nearDuplicateVideoGroups(ungroupedWithHash.filter { $0.kind == "video" }, pHashThreshold: pHashThreshold)
 
+        onProgress?("Saving clusters…")
         var createdClusters: [DuplicateCluster] = []
         try db.dbPool.write { db in
             for (group, matchType) in exactGroups.map({ ($0, "exact") }) + nearGroups.map({ ($0, "near") }) {

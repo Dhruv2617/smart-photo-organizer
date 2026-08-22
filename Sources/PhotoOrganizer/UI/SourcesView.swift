@@ -7,6 +7,14 @@ final class SourcesViewModel: ObservableObject {
     @Published var isScanning = false
     @Published var scanStatus: String = ""
     @Published var lastError: Error?
+    /// The source currently being scanned, so its row can show "Scanning…"
+    /// distinctly from the "Online"/"Offline" drive-availability label —
+    /// those two ideas were easy to read as the same thing otherwise.
+    @Published var currentlyScanningSourceId: String?
+    /// Sources that have already had their turn in the current scan pass,
+    /// so rows still waiting can show "Queued" instead of looking identical
+    /// to ones already done.
+    @Published var scannedSourceIds: Set<String> = []
 
     private let db: DatabaseManager
     private let sourceManager: SourceManager
@@ -37,6 +45,7 @@ final class SourcesViewModel: ObservableObject {
         guard !isScanning else { return }
         isScanning = true
         scanStatus = "Starting…"
+        scannedSourceIds.removeAll()
 
         let sourcesSnapshot = sources
         let indexer = self.indexer
@@ -45,6 +54,7 @@ final class SourcesViewModel: ObservableObject {
         Task.detached(priority: .userInitiated) {
             var scanError: Error?
             for (sourceIndex, source) in sourcesSnapshot.enumerated() {
+                await MainActor.run { self.currentlyScanningSourceId = source.id }
                 do {
                     _ = try indexer.indexSource(source) { processed, total in
                         Task { @MainActor in
@@ -55,7 +65,9 @@ final class SourcesViewModel: ObservableObject {
                     scanError = error
                     break
                 }
+                _ = await MainActor.run { self.scannedSourceIds.insert(source.id) }
             }
+            await MainActor.run { self.currentlyScanningSourceId = nil }
             if scanError == nil {
                 await MainActor.run { self.scanStatus = "Finding duplicates…" }
                 do {
@@ -69,6 +81,7 @@ final class SourcesViewModel: ObservableObject {
             await MainActor.run {
                 self.isScanning = false
                 self.scanStatus = ""
+                self.scannedSourceIds.removeAll()
                 self.reload()
                 if let scanError {
                     self.lastError = scanError
@@ -81,11 +94,16 @@ final class SourcesViewModel: ObservableObject {
         try? sourceManager.refreshOnlineStatus()
         sources = (try? sourceManager.allSources()) ?? []
     }
+
+    func galleryViewModel(for source: Source) -> SourceGalleryViewModel {
+        SourceGalleryViewModel(db: db, source: source)
+    }
 }
 
 struct SourcesView: View {
     @ObservedObject var viewModel: SourcesViewModel
     @State private var errorMessage: String?
+    @State private var galleryTarget: Source?
 
     var body: some View {
         VStack {
@@ -96,10 +114,23 @@ struct SourcesView: View {
                             .foregroundStyle(.blue)
                         Text(source.displayName)
                         Spacer()
-                        Text(source.isOnline ? "Online" : "Offline")
-                            .foregroundStyle(source.isOnline ? .green : .secondary)
+                        if viewModel.currentlyScanningSourceId == source.id {
+                            HStack(spacing: 4) {
+                                ProgressView().controlSize(.small)
+                                Text("Scanning…").foregroundStyle(.orange)
+                            }
+                        } else if viewModel.isScanning && !viewModel.scannedSourceIds.contains(source.id) {
+                            Text("Queued").foregroundStyle(.secondary)
+                        } else {
+                            Text(source.isOnline ? "Online" : "Offline")
+                                .foregroundStyle(source.isOnline ? .green : .secondary)
+                        }
                         Button("Remove") { remove(source) }
                             .disabled(viewModel.isScanning)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        galleryTarget = source
                     }
                     .swipeActions {
                         Button("Remove", role: .destructive) { remove(source) }
@@ -133,6 +164,9 @@ struct SourcesView: View {
         }, message: {
             Text(errorMessage ?? "")
         })
+        .sheet(item: $galleryTarget) { source in
+            SourceGalleryView(viewModel: viewModel.galleryViewModel(for: source))
+        }
     }
 
     private func remove(_ source: Source) {

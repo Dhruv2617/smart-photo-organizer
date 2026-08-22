@@ -5,6 +5,14 @@ import ImageIO
 /// Safe to use from a background task: `db` is a thread-safe DatabaseManager
 /// and `faceMatcher` only touches the DB through it, never shared mutable state.
 final class Indexer: @unchecked Sendable {
+    /// Face detection/matching is disabled for now — the People tab is
+    /// hidden because VNGenerateImageFeaturePrintRequest (the only public
+    /// Vision API available) isn't face-recognition-tuned, so it split
+    /// people into too many identities. Flip this back to `true` (and
+    /// re-enable the People tab in PhotoOrganizerApp.swift) once a better
+    /// matching approach is in place — no other code needs to change.
+    static let faceIndexingEnabled = false
+
     private let db: DatabaseManager
     private let faceMatcher: FaceMatcher
 
@@ -60,12 +68,14 @@ final class Indexer: @unchecked Sendable {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
-            if existing != nil {
-                try deleteFaceObservations(mediaFileId: mediaFile.id)
-            }
-            if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
-               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
-                try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+            if Self.faceIndexingEnabled {
+                if existing != nil {
+                    try deleteFaceObservations(mediaFileId: mediaFile.id)
+                }
+                if let imageSource = CGImageSourceCreateWithURL(file.url as CFURL, nil),
+                   let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
+                    try? indexFaces(cgImage: cgImage, mediaFileId: mediaFile.id, frameTimestamp: nil)
+                }
             }
         }
 
@@ -110,11 +120,13 @@ final class Indexer: @unchecked Sendable {
             try db.dbPool.write { db in try mediaFile.save(db) }
             results.append(mediaFile)
 
-            if existing != nil {
-                try deleteFaceObservations(mediaFileId: mediaFile.id)
-            }
-            for (timestamp, image) in frames {
-                try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+            if Self.faceIndexingEnabled {
+                if existing != nil {
+                    try deleteFaceObservations(mediaFileId: mediaFile.id)
+                }
+                for (timestamp, image) in frames {
+                    try? indexFaces(cgImage: image, mediaFileId: mediaFile.id, frameTimestamp: timestamp)
+                }
             }
         }
 

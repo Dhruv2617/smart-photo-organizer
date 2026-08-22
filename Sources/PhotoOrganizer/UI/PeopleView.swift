@@ -24,6 +24,30 @@ final class PeopleViewModel: ObservableObject {
         try matcher.labelIdentity(identityId, as: name)
     }
 
+    /// Merges several identities that are really the same person (a
+    /// common outcome since face matching uses a generic image-similarity
+    /// distance, not a face-recognition-tuned one, so the same person
+    /// often splits across multiple identities). All face observations
+    /// move to the surviving identity; the others are deleted. Prefers an
+    /// already-labeled identity as the survivor so a merge never loses a
+    /// name the user already set.
+    func mergeIdentities(_ ids: Set<String>) throws {
+        guard ids.count > 1 else { return }
+        let selected = identities.filter { ids.contains($0.id) }
+        guard let keeper = selected.first(where: { $0.label != nil }) ?? selected.first else { return }
+        let othersToMerge = ids.subtracting([keeper.id])
+
+        try db.dbPool.write { db in
+            for otherId in othersToMerge {
+                try FaceObservation
+                    .filter(Column("identityId") == otherId)
+                    .updateAll(db, Column("identityId").set(to: keeper.id))
+                _ = try FaceIdentity.deleteOne(db, key: otherId)
+            }
+        }
+        try reload()
+    }
+
     /// Renders one representative face-crop thumbnail per identity (its
     /// first observed face), off the main thread since it decodes a full
     /// image per identity.
@@ -66,28 +90,70 @@ struct PeopleView: View {
     @ObservedObject var viewModel: PeopleViewModel
     @State private var editingId: String?
     @State private var draftName: String = ""
+    @State private var isSelecting = false
+    @State private var selectedIds: Set<String> = []
+    @State private var errorMessage: String?
+
+    private let thumbnailSize: CGFloat = 84
 
     var body: some View {
-        List(viewModel.identities, id: \.id) { identity in
+        VStack(spacing: 0) {
             HStack {
-                if let thumbnail = viewModel.thumbnails[identity.id] {
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
+                Button(isSelecting ? "Cancel" : "Select") {
+                    isSelecting.toggle()
+                    if !isSelecting { selectedIds.removeAll() }
+                }
+                if isSelecting {
+                    Spacer()
+                    Text("\(selectedIds.count) selected").foregroundStyle(.secondary)
+                    Button("Merge Selected") {
+                        mergeSelected()
+                    }
+                    .disabled(selectedIds.count < 2)
                 } else {
-                    Image(systemName: "person.crop.circle")
-                        .resizable()
-                        .frame(width: 40, height: 40)
-                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
-                Text(identity.label ?? "Unnamed person")
-                Spacer()
-                Button("Rename") {
-                    editingId = identity.id
-                    draftName = identity.label ?? ""
+            }
+            .padding()
+
+            List(viewModel.identities, id: \.id) { identity in
+                HStack {
+                    if isSelecting {
+                        Image(systemName: selectedIds.contains(identity.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedIds.contains(identity.id) ? Color.accentColor : .secondary)
+                    }
+                    if let thumbnail = viewModel.thumbnails[identity.id] {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: thumbnailSize, height: thumbnailSize)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle")
+                            .resizable()
+                            .frame(width: thumbnailSize, height: thumbnailSize)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(identity.label ?? "Unnamed person")
+                        .font(.title3)
+                    Spacer()
+                    if !isSelecting {
+                        Button("Rename") {
+                            editingId = identity.id
+                            draftName = identity.label ?? ""
+                        }
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard isSelecting else { return }
+                    if selectedIds.contains(identity.id) {
+                        selectedIds.remove(identity.id)
+                    } else {
+                        selectedIds.insert(identity.id)
+                    }
+                }
+                .padding(.vertical, 6)
             }
         }
         .task {
@@ -103,6 +169,21 @@ struct PeopleView: View {
                 }
             }
             .padding()
+        }
+        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
+            Button("OK") { errorMessage = nil }
+        }, message: {
+            Text(errorMessage ?? "")
+        })
+    }
+
+    private func mergeSelected() {
+        do {
+            try viewModel.mergeIdentities(selectedIds)
+            selectedIds.removeAll()
+            isSelecting = false
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

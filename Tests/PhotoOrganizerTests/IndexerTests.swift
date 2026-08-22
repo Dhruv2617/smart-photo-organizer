@@ -39,7 +39,8 @@ struct IndexerTests {
         #expect(all.count == 1)
     }
 
-    @Test func testReindexingChangedFileClearsStaleFaceObservations() throws {
+    @Test(.disabled("Face indexing is currently disabled (Indexer.faceIndexingEnabled = false) while the People tab is hidden — re-enable this test alongside that flag."))
+    func testReindexingChangedFileClearsStaleFaceObservations() throws {
         let db = try DatabaseManager(path: NSTemporaryDirectory() + "test-\(UUID().uuidString).sqlite")
         let sourceManager = SourceManager(db: db)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
