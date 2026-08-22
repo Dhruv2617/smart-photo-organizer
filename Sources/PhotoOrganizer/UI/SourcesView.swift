@@ -1,9 +1,25 @@
 import SwiftUI
 import AppKit
+import GRDB
+
+struct SourceStats {
+    var photoCount = 0
+    var videoCount = 0
+    var totalBytes: Int64 = 0
+
+    var totalFiles: Int { photoCount + videoCount }
+
+    static func += (lhs: inout SourceStats, rhs: SourceStats) {
+        lhs.photoCount += rhs.photoCount
+        lhs.videoCount += rhs.videoCount
+        lhs.totalBytes += rhs.totalBytes
+    }
+}
 
 @MainActor
 final class SourcesViewModel: ObservableObject {
     @Published var sources: [Source] = []
+    @Published var statsBySourceId: [String: SourceStats] = [:]
     @Published var isScanning = false
     @Published var scanStatus: String = ""
     @Published var lastError: Error?
@@ -90,9 +106,37 @@ final class SourcesViewModel: ObservableObject {
         }
     }
 
-    private func reload() {
+    var overallStats: SourceStats {
+        statsBySourceId.values.reduce(into: SourceStats()) { $0 += $1 }
+    }
+
+    /// Not private: tests call this directly to refresh stats after
+    /// inserting MediaFile rows outside the normal indexSource/addSource
+    /// flow.
+    func reload() {
         try? sourceManager.refreshOnlineStatus()
         sources = (try? sourceManager.allSources()) ?? []
+        loadStats()
+    }
+
+    private func loadStats() {
+        var stats: [String: SourceStats] = [:]
+        for source in sources {
+            let files = (try? db.dbPool.read { db in
+                try MediaFile.filter(Column("sourceId") == source.id).fetchAll(db)
+            }) ?? []
+            var stat = SourceStats()
+            for file in files {
+                if file.kind == "video" {
+                    stat.videoCount += 1
+                } else {
+                    stat.photoCount += 1
+                }
+                stat.totalBytes += file.fileSizeBytes ?? 0
+            }
+            stats[source.id] = stat
+        }
+        statsBySourceId = stats
     }
 
     func galleryViewModel(for source: Source) -> SourceGalleryViewModel {
@@ -112,7 +156,14 @@ struct SourcesView: View {
                     HStack {
                         Image(systemName: "folder.fill")
                             .foregroundStyle(.blue)
-                        Text(source.displayName)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(source.displayName)
+                            if let stats = viewModel.statsBySourceId[source.id] {
+                                Text(Self.statsLine(stats))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         Spacer()
                         if viewModel.currentlyScanningSourceId == source.id {
                             HStack(spacing: 4) {
@@ -146,6 +197,12 @@ struct SourcesView: View {
                 }
                 .padding(.bottom, 4)
             }
+            if !viewModel.sources.isEmpty {
+                Text(Self.overallStatsLine(viewModel.overallStats))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+            }
             HStack {
                 Button("Add Folder…") { presentFolderPicker() }
                     .disabled(viewModel.isScanning)
@@ -167,6 +224,18 @@ struct SourcesView: View {
         .sheet(item: $galleryTarget) { source in
             SourceGalleryView(viewModel: viewModel.galleryViewModel(for: source))
         }
+    }
+
+    private static func statsLine(_ stats: SourceStats) -> String {
+        "\(stats.totalFiles) files (\(stats.photoCount) photos, \(stats.videoCount) videos) · \(formattedSize(stats.totalBytes))"
+    }
+
+    private static func overallStatsLine(_ stats: SourceStats) -> String {
+        "Overall: \(stats.totalFiles) files (\(stats.photoCount) photos, \(stats.videoCount) videos) · \(formattedSize(stats.totalBytes)) total"
+    }
+
+    private static func formattedSize(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     private func remove(_ source: Source) {

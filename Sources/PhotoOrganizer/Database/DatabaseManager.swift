@@ -84,6 +84,16 @@ final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "mediaFile") { t in
+                // Comma-separated scene/object labels from Vision's on-device
+                // image classifier (VNClassifyImageRequest) — e.g.
+                // "beach,ocean,sky,outdoor". Powers the Search tab's text
+                // search. Photos only for now (videos aren't classified).
+                t.add(column: "tags", .text)
+            }
+        }
+
         return migrator
     }
 }
