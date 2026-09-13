@@ -84,20 +84,6 @@ final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        migrator.registerMigration("v4") { db in
-            // Stores a CLIP image embedding per photo, and one per sampled
-            // video frame (frameTimestamp non-nil) — powers the Search
-            // tab's natural-language text search via cosine similarity
-            // against a CLIP text embedding of the query. Never populated
-            // for videos' "frameTimestamp == nil" case; that's photo-only.
-            try db.create(table: "mediaEmbedding") { t in
-                t.column("id", .text).primaryKey()
-                t.column("mediaFileId", .text).notNull().references("mediaFile", onDelete: .cascade)
-                t.column("frameTimestamp", .double) // nil for photos, seconds into video otherwise
-                t.column("embedding", .blob).notNull()
-            }
-        }
-
         return migrator
     }
 }

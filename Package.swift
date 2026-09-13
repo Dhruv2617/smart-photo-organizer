@@ -16,10 +16,7 @@ let package = Package(
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
-            path: "Sources/PhotoOrganizer",
-            resources: [
-                .copy("Resources/CLIPModels")
-            ]
+            path: "Sources/PhotoOrganizer"
         ),
         .testTarget(
             name: "PhotoOrganizerTests",
