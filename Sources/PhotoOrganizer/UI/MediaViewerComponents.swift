@@ -53,6 +53,42 @@ final class TrackpadSwipeMonitor: ObservableObject {
     }
 }
 
+/// SwiftUI's `.onKeyPress` only fires while the exact view it's attached to
+/// holds first-responder focus, which is easy to lose in a sheet with its
+/// own buttons (clicking Previous/Next/Move to Trash hands focus to that
+/// button, and arrow keys stop reaching the slideshow at all). A local
+/// event monitor sidesteps that — same reasoning as `TrackpadSwipeMonitor`.
+@MainActor
+final class SlideshowKeyMonitor: ObservableObject {
+    var onLeftArrow: () -> Void = {}
+    var onRightArrow: () -> Void = {}
+    var onDelete: () -> Void = {}
+
+    private var monitor: Any?
+
+    func start() {
+        stop()
+        print("SlideshowKeyMonitor: start() called")
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            print("SlideshowKeyMonitor: keyDown keyCode=\(event.keyCode)")
+            guard let self else { return event }
+            switch event.keyCode {
+            case 123: self.onLeftArrow(); return nil
+            case 124: self.onRightArrow(); return nil
+            case 51, 117: self.onDelete(); return nil
+            default: return event
+            }
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+    }
+}
+
 enum SlideDirection {
     case forward   // Next: new photo slides in from the right, old exits left
     case backward  // Previous: new photo slides in from the left, old exits right
@@ -182,6 +218,7 @@ struct MediaSlideshow: View {
     @State private var pendingTrash: MediaFile?
     @FocusState private var isFocused: Bool
     @StateObject private var swipeMonitor = TrackpadSwipeMonitor()
+    @StateObject private var keyMonitor = SlideshowKeyMonitor()
     @State private var slideDirection: SlideDirection = .forward
 
     init(
@@ -306,12 +343,15 @@ struct MediaSlideshow: View {
             swipeMonitor.onSwipeLeft = { goToNext() }
             swipeMonitor.onSwipeRight = { goToPrevious() }
             swipeMonitor.start()
+            keyMonitor.onLeftArrow = { goToPrevious() }
+            keyMonitor.onRightArrow = { goToNext() }
+            keyMonitor.onDelete = { trashCurrent() }
+            keyMonitor.start()
         }
-        .onDisappear { swipeMonitor.stop() }
-        .onKeyPress(.leftArrow) { goToPrevious(); return .handled }
-        .onKeyPress(.rightArrow) { goToNext(); return .handled }
-        .onKeyPress(.delete) { trashCurrent(); return .handled }
-        .onKeyPress(.deleteForward) { trashCurrent(); return .handled }
+        .onDisappear {
+            swipeMonitor.stop()
+            keyMonitor.stop()
+        }
         .confirmationDialog(
             "Move this file to Trash?",
             isPresented: Binding(get: { pendingTrash != nil }, set: { if !$0 { pendingTrash = nil } }),

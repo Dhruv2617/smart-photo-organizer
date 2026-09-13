@@ -31,6 +31,11 @@ final class SourcesViewModel: ObservableObject {
     /// so rows still waiting can show "Queued" instead of looking identical
     /// to ones already done.
     @Published var scannedSourceIds: Set<String> = []
+    /// True for a source whose on-disk photo/video count no longer matches
+    /// what's indexed (new files dropped onto the drive, or files removed)
+    /// — surfaced as a per-row "Rescan" prompt instead of making the user
+    /// guess whether "Rescan All" is needed.
+    @Published var needsRescanBySourceId: [String: Bool] = [:]
 
     private let db: DatabaseManager
     private let sourceManager: SourceManager
@@ -43,9 +48,12 @@ final class SourcesViewModel: ObservableObject {
         reload()
     }
 
+    /// Adds the folder and immediately scans it — no need for the user to
+    /// separately hit "Rescan All" right after connecting a new source.
     func addSource(url: URL) throws {
-        _ = try sourceManager.addSource(url: url)
+        let source = try sourceManager.addSource(url: url)
         reload()
+        scanSource(source)
     }
 
     /// Removes a source from the index only — never touches the original
@@ -55,15 +63,25 @@ final class SourcesViewModel: ObservableObject {
         reload()
     }
 
+    func rescanAll() {
+        runScan(sources)
+    }
+
+    /// Scans just one source (used right after adding it, so a freshly
+    /// connected folder doesn't just sit there unindexed until the user
+    /// remembers to hit "Rescan All").
+    func scanSource(_ source: Source) {
+        runScan([source])
+    }
+
     /// Runs the actual scan off the main thread so the UI stays responsive,
     /// hopping back to the main actor only to publish progress/state.
-    func rescanAll() {
+    private func runScan(_ sourcesSnapshot: [Source]) {
         guard !isScanning else { return }
         isScanning = true
         scanStatus = "Starting…"
         scannedSourceIds.removeAll()
 
-        let sourcesSnapshot = sources
         let indexer = self.indexer
         let db = self.db
 
@@ -121,6 +139,7 @@ final class SourcesViewModel: ObservableObject {
 
     private func loadStats() {
         var stats: [String: SourceStats] = [:]
+        var needsRescan: [String: Bool] = [:]
         for source in sources {
             let files = (try? db.dbPool.read { db in
                 try MediaFile.filter(Column("sourceId") == source.id).fetchAll(db)
@@ -135,8 +154,20 @@ final class SourcesViewModel: ObservableObject {
                 stat.totalBytes += file.fileSizeBytes ?? 0
             }
             stats[source.id] = stat
+
+            // Cheap directory walk (no hashing) to compare against what's
+            // indexed — mismatched counts mean files were added/removed on
+            // the drive since the last scan. Skipped while offline: an
+            // unreachable drive enumerates as empty and would otherwise
+            // always read as "needs rescan".
+            if source.isOnline {
+                let root = URL(fileURLWithPath: source.rootPath).resolvingSymlinksInPath()
+                let diskCount = FileScanner.scan(root: root).count
+                needsRescan[source.id] = diskCount != files.count
+            }
         }
         statsBySourceId = stats
+        needsRescanBySourceId = needsRescan
     }
 
     func galleryViewModel(for source: Source) -> SourceGalleryViewModel {
@@ -175,10 +206,17 @@ struct SourcesView: View {
                         } else {
                             Text(source.isOnline ? "Online" : "Offline")
                                 .foregroundStyle(source.isOnline ? .green : .secondary)
+                            if viewModel.needsRescanBySourceId[source.id] == true {
+                                Button("Rescan (new files found)") { viewModel.scanSource(source) }
+                                    .foregroundStyle(.orange)
+                            }
                         }
+                        Button("Rescan") { viewModel.scanSource(source) }
+                            .disabled(viewModel.isScanning || !source.isOnline)
                         Button("Remove") { remove(source) }
                             .disabled(viewModel.isScanning)
                     }
+                    .padding(.vertical, 4)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         galleryTarget = source
@@ -186,8 +224,12 @@ struct SourcesView: View {
                     .swipeActions {
                         Button("Remove", role: .destructive) { remove(source) }
                     }
+                    .listRowBackground(GlassRowBackground())
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                 }
             }
+            .scrollContentBackground(.hidden)
             if viewModel.isScanning {
                 HStack {
                     ProgressView()

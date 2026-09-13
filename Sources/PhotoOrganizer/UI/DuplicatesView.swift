@@ -96,7 +96,7 @@ final class DuplicatesViewModel: ObservableObject {
     }
 }
 
-private enum DuplicatesTab: String, CaseIterable {
+private enum DuplicatesTab: String, CaseIterable, Hashable {
     case exact = "Exact Duplicates"
     case similar = "Similar Duplicates"
 }
@@ -108,18 +108,23 @@ struct DuplicatesView: View {
     @State private var selectedTab: DuplicatesTab = .exact
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                ForEach(DuplicatesTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 16) {
+                GlassTabBar(
+                    segments: DuplicatesTab.allCases,
+                    title: { $0.rawValue },
+                    selection: $selectedTab
+                )
+                .frame(width: 260)
+
+                if selectedTab == .similar {
+                    similarityControls
                 }
             }
-            .pickerStyle(.segmented)
-            .padding()
-
-            if selectedTab == .similar {
-                similarityControls
-            }
+            .padding(.leading, 16)
+            .padding(.trailing)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
             ClusterList(
                 entries: selectedTab == .exact ? viewModel.exactClusters : viewModel.similarClusters,
@@ -186,7 +191,7 @@ struct DuplicatesView: View {
                 .disabled(viewModel.isRecalculating)
             }
         }
-        .padding([.horizontal, .bottom])
+        .frame(maxWidth: .infinity)
         .onChange(of: viewModel.lastError == nil) { _, _ in
             if let error = viewModel.lastError {
                 errorMessage = error.localizedDescription
@@ -221,34 +226,39 @@ private struct ClusterList: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(entries, id: \.cluster.id) { entry in
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Cluster (\(entry.members.count) files)")
                         .font(.headline)
                         .contentShape(Rectangle())
                         .onTapGesture { onSelect(entry.cluster.id, 0) }
-                    ForEach(entry.members, id: \.id) { file in
-                        HStack {
-                            MediaThumbnailView(url: viewModel.fileURL(for: file), kind: file.kind)
-                            VStack(alignment: .leading) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 90, maximum: 110), spacing: 10)], alignment: .leading, spacing: 10) {
+                        ForEach(entry.members, id: \.id) { file in
+                            VStack(spacing: 4) {
+                                MediaThumbnailView(url: viewModel.fileURL(for: file), kind: file.kind, size: 90)
                                 Text(file.relativePath)
-                                if let sizeText = DuplicatesView.formattedSize(file.fileSizeBytes) {
-                                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                if file.id == entry.cluster.suggestedKeeperMediaFileId {
+                                    Text("Keeper").font(.caption2).foregroundStyle(.green)
                                 }
                             }
-                            if file.id == entry.cluster.suggestedKeeperMediaFileId {
-                                Text("Suggested keeper").font(.caption).foregroundStyle(.green)
-                            }
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if let index = entry.members.firstIndex(where: { $0.id == file.id }) {
-                                onSelect(entry.cluster.id, index)
+                            .frame(width: 90)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if let index = entry.members.firstIndex(where: { $0.id == file.id }) {
+                                    onSelect(entry.cluster.id, index)
+                                }
                             }
                         }
                     }
                 }
+                .padding(.vertical, 4)
+                .listRowBackground(GlassRowBackground())
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 20, leading: 12, bottom: 20, trailing: 12))
             }
+            .scrollContentBackground(.hidden)
         }
     }
 }
