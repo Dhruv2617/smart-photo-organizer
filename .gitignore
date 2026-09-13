@@ -3,12 +3,6 @@
 *.xcodeproj
 .DS_Store
 
-# CLIP model files (~290MB) — too big for a normal git repo / exceeds
-# GitHub's 100MB per-file limit. Fetch with Scripts/download-clip-models.sh
-# instead of committing them.
-Sources/PhotoOrganizer/Resources/CLIPModels/ImageEncoder.mlmodelc/
-Sources/PhotoOrganizer/Resources/CLIPModels/TextEncoder.mlmodelc/
-
 # Distribution artifacts (rebuild locally, don't commit)
 PhotoOrganizer.app/
 PhotoOrganizer.dmg
